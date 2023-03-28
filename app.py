@@ -76,7 +76,7 @@ async def async_request(method, url, headers={}, data=None, cookies=None):
 
 # Reverse proxy route
 @app.route("/", defaults={"path": ""})
-@app.route("/<path:path>", methods=["GET", "POST", "PATCH", "HEAD", "OPTIONS", "PUT", "DELETE")
+@app.route("/<path:path>", methods=["GET", "POST", "PATCH", "HEAD", "OPTIONS", "PUT", "DELETE"])
 async def reverse_proxy(path):
     endpoints = await get_heroku_endpoints()
     tasks = []
