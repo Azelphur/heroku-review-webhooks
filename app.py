@@ -9,7 +9,7 @@ import requests
 
 app = Flask(__name__)
 
-TIMEOUT = 60
+TIMEOUT = 25 # Herokus is 30, so it's nice to at least get an error message
 HEROKU_PIPELINE = os.getenv("HEROKU_PIPELINE")
 HEROKU_API_KEY = os.getenv("HEROKU_API_KEY")
 
@@ -34,7 +34,6 @@ async def get_heroku_endpoints():
             result = await response.read()
 
     review_apps = json.loads(result)
-    print(review_apps)
     tasks = []
     for review_app in review_apps:
         if review_app["app"] is None:
@@ -56,7 +55,7 @@ async def get_heroku_endpoints():
             traceback.print_exc()
             continue
         else:
-            url, content, status_code, headers = result
+            content, status_code, headers = result
             heroku_app = json.loads(content)
             endpoints.append(heroku_app["web_url"])
     app.logger.info(f"Found {len(endpoints)} heroku review apps")
@@ -64,18 +63,16 @@ async def get_heroku_endpoints():
 
 
 async def async_request(method, url, headers={}, data=None, cookies=None):
-    r = requests.request(method, url, headers=headers, data=data, cookies=cookies)
-    return url, r.content, r.status_code, r.headers.items()
-    #async with aiohttp.ClientSession() as session:
-    #    async with session.request(
-    #        method=method,
-    #        url=url,
-    #        headers=headers,
-    #        data=data,
-    #        cookies=cookies,
-    #        timeout=TIMEOUT,
-    #    ) as response:
-    #        return url, await response.read(), response.status, response.headers.items()
+    async with aiohttp.ClientSession() as session:
+        async with session.request(
+            method=method,
+            url=url,
+            headers=headers,
+            data=data,
+            cookies=cookies,
+            timeout=TIMEOUT,
+        ) as response:
+            return await response.read(), response.status, response.headers.items()
 
 methods = ["GET", "POST", "PATCH", "HEAD", "OPTIONS", "PUT", "DELETE"]
 
@@ -85,29 +82,35 @@ methods = ["GET", "POST", "PATCH", "HEAD", "OPTIONS", "PUT", "DELETE"]
 async def reverse_proxy(path):
     endpoints = await get_heroku_endpoints()
     tasks = []
-    app.logger.debug(f"Received webhook {request.method} {path} {request.get_data()}")
+    data = request.get_data()
+    app.logger.debug(f"Received webhook {request.method} {path} {data}")
     for endpoint in endpoints:
         url = f"{endpoint}{path}"
         headers = {key: value for (key, value) in request.headers if key != "Host"}
-        data = request.get_data()
-        cookies = request.cookies
         tasks.append(
             asyncio.create_task(
-                async_request(request.method, url, headers, data, cookies)
+                async_request(request.method, url, headers, data, request.cookies),
+                name=url,
             )
         )
     finished, _ = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
-    for task in finished:
+    for i, task in enumerate(finished):
+        url = task.get_name()
         try:
             result = task.result()
         except Exception as e:
-            traceback.print_exc()
+            app.logger.exception(f"Request to {url} failed")
             continue
         else:
-            url, content, status_code, headers = result
+            content, status_code, headers = result
             app.logger.info(f"Got {status_code} response from {url}")
             if 200 <= status_code <= 299:
+                app.logger.info(f"Forwarding response from upstream {url} - {status_code} {content}")
                 return content, status_code, headers
+            if i == len(finished)-1:
+                app.logger.info(f"No app responded with a 2xx code, returning response from {url} - {status_code} {content}")
+                return content, status_code, headers
+    app.logger.error("No endpoints, nothing to do.")
     abort(404)
 
 
