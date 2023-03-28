@@ -5,10 +5,11 @@ import traceback
 import os
 import json
 import logging
+import requests
 
 app = Flask(__name__)
 
-TIMEOUT = 10
+TIMEOUT = 60
 HEROKU_PIPELINE = os.getenv("HEROKU_PIPELINE")
 HEROKU_API_KEY = os.getenv("HEROKU_API_KEY")
 
@@ -33,6 +34,7 @@ async def get_heroku_endpoints():
             result = await response.read()
 
     review_apps = json.loads(result)
+    print(review_apps)
     tasks = []
     for review_app in review_apps:
         if review_app["app"] is None:
@@ -62,21 +64,24 @@ async def get_heroku_endpoints():
 
 
 async def async_request(method, url, headers={}, data=None, cookies=None):
-    async with aiohttp.ClientSession() as session:
-        async with session.request(
-            method=method,
-            url=url,
-            headers=headers,
-            data=data,
-            cookies=cookies,
-            timeout=TIMEOUT,
-        ) as response:
-            return url, await response.read(), response.status, response.headers.items()
+    r = requests.request(method, url, headers=headers, data=data, cookies=cookies)
+    return url, r.content, r.status_code, r.headers.items()
+    #async with aiohttp.ClientSession() as session:
+    #    async with session.request(
+    #        method=method,
+    #        url=url,
+    #        headers=headers,
+    #        data=data,
+    #        cookies=cookies,
+    #        timeout=TIMEOUT,
+    #    ) as response:
+    #        return url, await response.read(), response.status, response.headers.items()
 
+methods = ["GET", "POST", "PATCH", "HEAD", "OPTIONS", "PUT", "DELETE"]
 
 # Reverse proxy route
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>", methods=["GET", "POST", "PATCH", "HEAD", "OPTIONS", "PUT", "DELETE"])
+@app.route("/", defaults={"path": ""}, methods=methods)
+@app.route("/<path:path>", methods=methods)
 async def reverse_proxy(path):
     endpoints = await get_heroku_endpoints()
     tasks = []
