@@ -11,6 +11,11 @@ TIMEOUT = 10
 HEROKU_PIPELINE = os.getenv("HEROKU_PIPELINE")
 HEROKU_API_KEY = os.getenv("HEROKU_API_KEY")
 
+if __name__ != '__main__':
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
+
 
 async def get_heroku_endpoints():
     headers = {
@@ -74,6 +79,7 @@ async def async_request(method, url, headers={}, data=None, cookies=None):
 async def reverse_proxy(path):
     endpoints = await get_heroku_endpoints()
     tasks = []
+    app.logger.debug(f"Received webhook {request.method} {path} {request.get_data()}")
     for endpoint in endpoints:
         url = f"{endpoint}{path}"
         headers = {key: value for (key, value) in request.headers if key != "Host"}
