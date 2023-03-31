@@ -81,6 +81,7 @@ methods = ["GET", "POST", "PATCH", "HEAD", "OPTIONS", "PUT", "DELETE"]
 @app.route("/<path:path>", methods=methods)
 async def reverse_proxy(path):
     endpoints = await get_heroku_endpoints()
+    endpoints = endpoints + os.getenv("EXTRA_ENDPOINTS", "").split()
     tasks = []
     data = request.get_data()
     app.logger.debug(f"Received webhook {request.method} {path} {data}")
